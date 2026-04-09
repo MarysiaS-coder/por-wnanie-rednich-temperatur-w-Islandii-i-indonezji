@@ -10,4 +10,4 @@ Projekt poświęcony analizie porównawczej zmian temperatury w dwóch skrajnie 
 
 # wykorzystane narzędzia:
 * Język: R
-* *Środowisko:RStudio / R Markdown
+* Środowisko:RStudio / R Markdown
