@@ -6,8 +6,8 @@ Projekt poświęcony analizie porównawczej zmian temperatury w dwóch skrajnie 
 * Badanie stacjonarności: Wykorzystanie testów statystycznych (np. test ADF) do sprawdzenia, czy parametry statystyczne szeregu są stałe w czasie.
 * Identyfikacja składnika losowego
 * Analiza trendu: Identyfikacja długookresowych tendencji wzrostowych lub spadkowych w obu lokalizacjach.
-* Modelowanie:* Dopasowanie modeli (np. ARIMA, ARMA, Holta-Wintersa) w celu opisania struktury danych.
+* Modelowanie: Dopasowanie modeli (np. ARIMA, ARMA, Holta-Wintersa) w celu opisania struktury danych.
 
 # wykorzystane narzędzia:
-* *Język: R
+* Język: R
 * *Środowisko:RStudio / R Markdown
