@@ -1,0 +1,691 @@
+---
+title: "Analiza średnich temperatur w Islandii i Indonezji"
+author: "Maria Stasak i Łukasz Schab"
+output:
+  pdf_document: default
+  html_document: default
+date: "2026-01-19"
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+```{r}
+kraje <- read.csv("GlobalLandTemperaturesByCountry.csv")
+```
+
+```{r, warning = FALSE}
+library(dplyr)
+library(forecast)
+library(lubridate)
+library(latex2exp)
+library(urca)
+library(lmtest)
+library(nortest)
+library(ggplot2)
+library(FinTS)
+library(rugarch)
+library(tseries)
+```
+
+# Początkowa obróbka danych:
+
+Analizowany zbiór danych zawiera historyczne informacje na temat
+średnich miesięcznych temperatur we wszystkich państwach świata, z czego
+my skupimy się jedynie na Islandii oraz Indonezji, przeanalizwane
+zostaną dane z ostanich 40 lat (480 miesięcy).
+
+Dane zostały pobrane ze strony Kaggle.
+
+```{r}
+kraje <- kraje %>% mutate(dt = ymd(dt))
+```
+
+```{r}
+podsumowanie_kraje <- kraje %>% group_by(Country) %>% summarise(liczba_brakow = sum(is.na(AverageTemperature)), liczba_obserwacji = n(), pierwsza_obeserwacja = first(dt), ostatnia_obserwacja = last(dt)) 
+```
+
+```{r}
+head(arrange(podsumowanie_kraje,desc(liczba_obserwacji),liczba_brakow),5)
+```
+
+```{r}
+filter(podsumowanie_kraje, Country %in% c("Indonesia","Iceland"))
+```
+
+W analizie uwzględnimy 480 obserwacji tj. z 40 ostatnich lat
+
+```{r}
+islandia <- tail(kraje[kraje$Country == "Iceland",],480)
+sum(is.na(islandia$AverageTemperature))
+```
+
+```{r}
+which(is.na(islandia$AverageTemperature))
+```
+
+```{r}
+islandia <- na.omit(tail(kraje[kraje$Country == "Iceland",],481))
+length(islandia$AverageTemperature)
+```
+
+```{r}
+indonezja <- tail(kraje[kraje$Country == "Indonesia",],480)
+sum(is.na(indonezja$AverageTemperature))
+```
+
+```{r}
+indonezja <- na.omit(tail(kraje[kraje$Country == "Indonesia",],481))
+length(islandia$AverageTemperature)
+```
+
+Zarówno dla Indonezji jak i Islandii w rozważanym zakresie wystąpuje 1
+brak, który jest najnowszą obserwacją, zatem możemy się jej
+bezproblemowo pozbyć i dołożyć jedną dodatkową na początek szeregu aby
+zachować liczbę 480 obserwacji.
+
+```{r}
+indonezja <- indonezja %>% mutate(t = row_number())
+islandia <- islandia %>% mutate(t = row_number())
+```
+
+# Analiza średnich temperatur miesięcznych
+
+Analizę szeregów przeprowadzimy osobno, najpierw zajmijmy się
+przypadkiem Indonezji:
+
+## 1. Indonezja
+
+```{r,warning=FALSE}
+ggseasonplot(ts(indonezja$AverageTemperature, frequency = 12), polar = T, main = "Wykres sezonowy dla Indonezji") + theme(legend.position = "None")
+```
+
+Na wykresie można zobserwować sezonowość o okresie długości 12 miesięcy.
+
+```{r}
+acf(indonezja$AverageTemperature, main = "ACF średniej temperatury w Indonezji")
+```
+
+Na korelogramie obserwujemy wyraźną okresowość (słupki zachowują
+regularną strukturę) co potwierdza przypuszczenia na temat sezonowości
+szeregu.
+
+```{r}
+plot(indonezja$dt,indonezja$AverageTemperature, type = "l", xlab = "Czas(w latach)",  ylab = "Średnia temperatura(w oC)", main = "Średni temperatura w Indonezji w czasie")
+```
+
+Na podstawie wykresu można zauważyć delikatny rosnący trend liniowy.
+
+```{r}
+ndiffs(indonezja$AverageTemperature)
+```
+
+Liczba potrzebnych różnicowań (1) do osiągnięcia stacjonarności
+potwierdza nasze przypuszczenia.
+
+```{r}
+summary(indonezja_lm <- lm(indonezja$AverageTemperature ~ indonezja$t))
+```
+
+W zbudowanym modelu liniowym zależności średniej temperatury od czasu,
+zarówno wyraz wolny jak i współczynnik kierunkowy są statystycznie
+istotne.
+
+```{r}
+plot(indonezja$t,indonezja$AverageTemperature, type = "l", xlab = "Czas (w miesięcach liczonych od pierwszej obserwacji) ",  ylab = "Średnia temperatura(w oC)", main = "Średnia temperatura w Indonezji w czasie wraz z trendem")
+lines(indonezja_lm$fitted.values, col = "red")
+```
+
+Wykres potwierdza przypuszczenia na temat istnienia oraz postaci trendu.
+
+### Weryfikacja stacjonarności
+
+Test KPSS
+
+Test przeprowadzimy w dwóch wersjach, na stacjonarność oraz na
+stacjonarność względem trendu.
+
+$$
+H_0: \text{szereg jest stacjonarny} \\H_1: \text{szereg nie jest stacjoanrny} 
+$$
+
+```{r}
+summary(ur.kpss(ts(indonezja$AverageTemperature, frequency = 12), type = "mu", lags = "long"))
+```
+
+Na podstawie testu odrzucamy $H_0$ na poziomie istotności 0,05, zatem
+szereg nie jest stacjonarny.
+
+$$
+H_0: \text{szereg jest stacjonarny względem trendu} \\H_1: \text{szereg nie jest stacjonarny względem trendu} 
+$$
+
+```{r}
+summary(urca::ur.kpss(ts(indonezja$AverageTemperature, frequency = 12), type = "tau", lags = "long"))
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$ zatem
+szereg jest stacjonarny względem trendu.
+
+### Model Holta-Wintersa
+
+Stwierdziliśmy, iż w szeregu występuje zarówno trend liniowy jak i
+sezonowość o okresie 12 miesięcy, zatem decydujemy się na zbudowanie
+modelu Holta-Wintersa z sezonowością addytywną.
+
+```{r}
+indonezja_hw <- HoltWinters(ts(indonezja$AverageTemperature, frequency = 12), seasonal = "additive")
+```
+
+```{r}
+plot(indonezja_hw,xlab = "Czas (w miesięcach liczonych od pierwszej obserwacji) ",  ylab = "Średnia temperatura(w oC)", main = "Wartości dopasowane modelem Holta-Wintersa dla Indonezji")
+```
+
+### Identyfikacja składnika losowego
+
+```{r}
+reszty_indonezja <- residuals(indonezja_hw)
+```
+
+#### Test t dla średniej
+
+$$
+H_0: \mu_{\varepsilon} = 0 \\H_1: \mu_{\varepsilon} \neq 0
+$$
+
+```{r}
+t.test(reszty_indonezja)
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia hipotezy
+zerowej, zatem średnia z reszt jest istotnie równa 0.
+
+#### Test serii Stevens'a
+
+$$
+H_0:\text{elementy szeregu reszt ewaluują dookoła poziomu zerowego w sposób losowy} \\ H_1: \text{elementy szeregu reszt mają wewnętrzną dynamikę}
+$$
+
+```{r}
+tseries::runs.test(as.factor(reszty_indonezja > 0))
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia H_0 zatem
+reszty są losowe.
+
+#### Weryfikacja normalności
+
+**Test Andersona-Darlinga**
+
+$$
+H_0: \text{Elementy szeregu reszt mają rozkład normalny} \\
+H_1: \text{Elementy szeregu reszt mają rozkład inny niż normalny}
+$$
+
+```{r}
+nortest::ad.test(reszty_indonezja)
+```
+
+Na poziomie istotności 0,05 odrzucamy $H_0$ zatem reszty mają rozkład
+inny niż normalny.
+
+```{r}
+qqnorm(reszty_indonezja, main = "Wykres kwantylowy reszt dla Indonezji")
+```
+
+```{r}
+hist(reszty_indonezja, main = "Histogram reszt dla Indonezji")
+```
+
+W przypadku testu Andersona-Darlinga byliśmy zmuszeni odrzucić $H_0$
+jednakże na podstawie wykresu kwantylowego oraz histogramu, stwierdzamy
+iż rozkład reszt jest wystarczająco zbliżony do normalnego, zatem
+decydujemy się przyjąć jego normalność dla następnych analiz.
+
+#### Autokorelacja
+
+```{r}
+acf(reszty_indonezja, main = "ACF reszt dla Indonezji")
+```
+
+Na korelogramie większość słupków nie wychodzi ponad linię istotności,
+zatem przypuszczamy iż autokorelacja nie jest istotna.
+
+**Test Breucha-Godfrey'a**
+
+$$
+H_0: \text{Współczynniki autokorelacji do rzędu 12 nie są istotne} \\
+H_1: \text{Przynajmniej jeden ze współczynników autokorelacji do rzędu 12 jest istotny}
+$$
+
+```{r}
+reszty_indonezja_df <- data.frame(reszty = as.vector(reszty_indonezja), t = 1:468)
+bgtest(lm(reszty ~ t, data = reszty_indonezja_df ), order = 12)
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$ zatem,
+zgodnie z naszymi przypuszczeniami współczynniki autokorelacji do rzędu
+12 nie są istotne.
+
+#### Homoskedastyczność
+
+**Test Breucha-Pagana**
+
+$$
+H_0: \text{Wariancja reszt jest stała} \\
+H_1: \text{Wariancja reszt jest funkcją liniową czasu} 
+$$
+
+```{r}
+bptest(lm(reszty ~ t, data = reszty_indonezja_df), studentize = FALSE)
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$.
+
+**Test Koenkera-Basseta**
+
+$$
+H_0: \text{Wariancja reszt jest stała} \\
+H_1: \text{Wariancja reszt jest funkcją liniową czasu} 
+$$
+
+```{r}
+bptest(lm(reszty ~ t, data = reszty_indonezja_df))
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$.
+
+**Test Goldfelda-Quandt'a**
+
+$$
+H_0: \text{Wariancje reszt w modelach zbudowanych na podzbiorach są równe} \\
+H_1: \text{Wariancja reszt w modelu zbudowanym na podzbiorze o większej średniej jest większa}
+$$
+
+```{r}
+gqtest(lm(reszty ~ t, data = reszty_indonezja_df), fraction = 0.2)
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$.
+
+**Test White'a**
+
+$$
+H_0: \text{Wariancja reszt jest stała} \\
+H_1: \text{Wariancja reszt jest funkcją liniową czasu oraz jego kwadratu}
+$$
+
+```{r}
+bptest(lm(reszty ~ t, data = reszty_indonezja_df), varformula = ~ t + t^2, studentize = FALSE, data = reszty_indonezja_df)
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$.
+
+**Test Harrisona Mc-Cabe'a**
+
+$$
+H_0: \text{Wariancje reszt w modelach zbudowanych na podzbiorach są równe} \\
+H_1: \text{Wariancja reszt w modelu zbudowanym na podzbiorze o większej średniej jest większa}
+$$
+
+```{r}
+hmctest(lm(reszty ~ t, data = reszty_indonezja_df))
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$.
+
+```{r}
+plot(lm(reszty ~ t, data = reszty_indonezja_df), which = 3)
+```
+
+Wnioski z testów są jednoznaczne, w żadnym z nich nie mieliśmy podstaw
+do odrzucenia $H_0$ zatem stwierdzamy homoskedastyczność reszt co
+potwierdza wykres Scale-Location.
+
+Podsumowując, w szeregu reszt stwierdziliśmy: wartość średnią równą 0,
+losowość, brak autokorelacji, normalność oraz homoskedastyczność, zatem
+składnik losowy jest po prostu białym szumem z wariancją 0,03714481.
+
+```{r}
+var(reszty_indonezja_df$reszty)
+```
+
+### Finalna postać modelu:
+
+\$\$ \text{Temperatura}\_t = 26,34367234 + 0,00447654t +
+s\left(\left[\frac{t}{12}\right]\right) + \epsilon\_t  ;
+\quad \text{gdzie:} \\
+
+s(x) =
+
+\begin{cases} -0,016454&; \ x = 1 \\ 0.04662572 &; \ x = 2 \\ 0.16455340 &; \ x = 3  \\ -0.15411714 &; \ x = 4 \\ -0.21184524 &; \ x = 5 \\ -0.09821557 &; \ x = 6 \\ 0.10951998 &; \ x = 7 \\ 0.11801821 &; \ x = 8 \\ 0.39530398 &; \ x = 9 \\ 0.01586907 &; \ x = 10 \\ -0.40492102 &; \ x = 11 \\ -0.25694225 &; \ x = 12  \end{cases}
+
+\quad; \quad \epsilon\_t \sim N(0;03714481)
+
+\$\$
+
+## 2. Islandia
+
+```{r,warning=FALSE}
+ggseasonplot(ts(islandia$AverageTemperature, frequency = 12), polar = T, main = "Wykres sezonowy dla Islandii") + theme(legend.position = "None")
+```
+
+Na wykresie obserwujemy wyraźną sezonowość o okresie 12.
+
+Na wykresie można zobserwować sezonowość o okresie długości 12 miesięcy.
+
+```{r}
+acf(islandia$AverageTemperature, main = "ACF średniej temperatury w Islandii")
+```
+
+Na korelogramie obserwujemy wyraźną okresowość (słupki zachowują
+regularną strukturę) co potwierdza przypuszczenia na temat sezonowości
+szeregu.
+
+```{r}
+plot(islandia$dt,islandia$AverageTemperature, type = "l", xlab = "Czas(w latach)",  ylab = "Średnia temperatura(w oC)", main = "Średni temperatura w Islandii w czasie")
+```
+
+Na podstawie wykresu ciężko wywnioskować obecność istotnego trendu,
+jednakże nie można też go wykluczyć.
+
+```{r}
+ndiffs(islandia$AverageTemperature)
+```
+
+Liczba potrzebnych różnicowań (0) do osiągnięcia stacjonarności daje
+podstawy do odrzucenia przypuszczeń na temat obceności trendu liniowego.
+
+```{r}
+summary(islandia_lm <- lm(islandia$AverageTemperature ~ islandia$t))
+```
+
+W zbudowanym modelu liniowym zależności średniej temperatury od czasu,
+zarówno wyraz wolny jak i współczynnik kierunkowy są statystycznie
+istotne, zatem zbudowanie modelu z trendem liniowym jest uzasadnione.
+
+```{r}
+plot(islandia$t,islandia$AverageTemperature, type = "l", xlab = "Czas (w miesięcach liczonych od pierwszej obserwacji) ",  ylab = "Średnia temperatura(w oC)", main = "Średnia temperatura w Islandii w czasie wraz z trendem") 
+lines(islandia_lm$fitted.values, col = "red")
+```
+
+### Weryfikacja stacjonarności
+
+**Test KPSS**
+
+Test przeprowadzimy w dwóch wersjach, na stacjonarność oraz na
+stacjonarność względem trendu.
+
+$$ H_0: \text{szereg jest stacjonarny} \\H_1: \text{szereg nie jest stacjoanrny}  $$
+
+```{r}
+summary(ur.kpss(ts(islandia$AverageTemperature, frequency = 12), type = "mu", lags = "long"))
+```
+
+Na podstawie testu odrzucamy $H_0$ na poziomie istotności 0,05, zatem
+szereg nie jest stacjonarny.
+
+$$ H_0: \text{szereg jest stacjonarny względem trendu} \\H_1: \text{szereg nie jest stacjonarny względem trendu}  $$
+
+```{r}
+summary(urca::ur.kpss(ts(indonezja$AverageTemperature, frequency = 12), type = "tau", lags = "long"))
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$ zatem
+szereg jest stacjonarny względem trendu.
+
+### Model Holta-Wintersa
+
+Na podstawie powyższych analiz decydujeemy się na zbudowanie modelu
+Holta-Wintersa z addytywną sezonowością.
+
+```{r}
+islandia_hw <- HoltWinters(ts(islandia$AverageTemperature, frequency = 12), seasonal = "additive")
+```
+
+```{r}
+plot(islandia_hw)
+```
+
+### Identyfikacja składnika losowego
+
+#### Test t dla średniej
+
+```{r}
+reszty_islandia <- residuals(islandia_hw)
+reszty_islandia_df <- data.frame(reszty = as.vector(reszty_islandia), t = 1:468) 
+```
+
+$$
+H_0: \mu_{\varepsilon} = 0 \\ H_1:\mu_{\varepsilon} \neq 0
+$$
+
+```{r}
+t.test(reszty_islandia)
+```
+
+Na poziomie istotności 0,05 nie mamy podstaw do odrzucenia $H_0$ zatem
+średnia reszt jest istotnie równa 0.
+
+#### Test serii Stevens'a
+
+$$
+H_0:\text{elementy szeregu reszt ewaluują dookoła poziomu zerowego w sposób losowy} \\ H_1: \text{elementy szeregu reszt mają wewnętrzną dynamikę}
+$$
+
+```{r}
+tseries::runs.test(as.factor(reszty_islandia_df$reszty > 0))
+```
+
+Na poziomie istotności 0,05 odrzucamy $H_0$, zatem stwierdzamy iż reszty
+mają wewnętrzną dynamikę.
+
+#### Autokorelacja
+
+```{r}
+acf(reszty_islandia_df$reszty)
+```
+
+Większość słupków nie wychodzi poza linię istotności zatem sam
+korelogram nie daje nam podstaw do stwierdzania o istotnej
+autokorelacji.
+
+**Test Breucha-Godfrey'a**
+
+$$ H_0: \text{Współczynniki autokorelacji do rzędu 12 nie są istotne} \\ H_1: \text{Przynajmniej jeden ze współczynników autokorelacji do rzędu 12 jest istotny} $$
+
+```{r}
+lmtest::bgtest(lm(reszty ~ t, data = reszty_islandia_df), order = 12)
+```
+
+Na poziomie istotności 0,05 odrzucamy $H_0$ zatem stwierdzamy że
+autokorelacja jednak jest istotna.
+
+#### Test na efekt ARCH (Test Engle'a)
+
+Jako iż przez brak losowości testy na homoskedastycznosć mogą dawać
+niewiarygodne wyniki, decydujemy przeprowadzić się Test Engle'a.
+
+$$
+H_0: \text{Efekt ARCH nie występuje w szeregu reszt} \\
+H_1: \text{Efekty ARCH występuje w szeregu reszt}
+$$
+
+```{r}
+ArchTest(reszty_islandia)
+```
+
+Na poziomie istotności 0,05 odrzucamy $H_0$ zatem stwierdzamy
+występowanie efektu ARCH w szeregu reszt.
+
+Podsumowując w szeregu reszt stwierdzilśmy: brak losowości, istotną
+autokorelację oraz efekt ARCH.
+
+Decydujemy się na zbudowanie modelu ARMA ze względu na występowanie
+autokorelacji, następnie sprawdzimy czy w resztach z tego modelu efekt
+ARCH wciąż występuje, jeśli tak zbudujemy model łączony UGARCH.
+
+```{r}
+summary(arma_islandia <- forecast::auto.arima(reszty_islandia_df$reszty))
+```
+
+Zbudowany model jest postaci ARMA(0,1) zatem jest to po prostu model
+ruchomej średniej rzędu 1 MA(1).
+
+```{r}
+plot(arma_islandia$fitted, , ylim = c(-4,4),  main = "Dopasowanie modelu MA(1) do reszt z modelu HW")
+lines(reszty_islandia_df$reszty, col = "red")
+```
+
+Widzimy iż wariancja pozostałego składnika losowego jest bardzo duża,
+model nie oddaje perfekcyjnie dynamiki szeregu reszt.
+
+Sprawdźmy czy model MA(1) wyeliminował występowanie efektu ARCH.
+
+**Test Engle'a**
+
+```{r}
+ArchTest(arma_islandia$residuals)
+```
+
+Na poziomie istotności 0,05 odrzucamy $H_0$ zatem efekt ARCH wciąż
+występuje, zbudujemy zatem model UGARCH dla reszt z modelu
+Holta-Wintersa, który jest modelem łączącym ARMA oraz GARCH, część ARMA
+ustalimy na MA(1), zaś znajdziemy najlepsze parametry dla części GARCH.
+
+```{r}
+auto_garch <- function(data, max_p = 3, max_q = 3){
+  best_aic <- Inf 
+  best_model <- NULL
+  
+  for (p in 1:max_p) {
+    for (q in 1:max_q) {
+        spec <- ugarchspec(
+          mean.model = list(
+            armaOrder = c(0,1),
+            include.mean = FALSE
+          ),
+          variance.model = list(
+            model = "sGARCH",
+            garchOrder = c(q,p)
+          ),
+          distribution.model = "norm"
+        )
+        
+        fit <- ugarchfit(
+          spec = spec,
+          data = data
+        )
+        temp_aic <- infocriteria(fit)[1]
+        if(temp_aic < best_aic){
+          best_aic <- temp_aic
+          best_model <- fit
+        }
+    }
+  }
+  return(best_model)
+}
+```
+
+```{r}
+islandia_ugarch <- auto_garch(residuals(islandia_hw))
+```
+
+```{r}
+islandia_ugarch@fit$matcoef
+```
+
+Dopasowany model jest postaci MA(1) + GARCH(1,1), jednakże parametr
+$\alpha$ jest w przybliżeniu równy 0, zaś parametr $\beta$ jest w
+przybliżeniu równy 1, na podstawie czcego stwierdzamy iż wariancja
+prawie nie zmienia się w czasie, zatem występujący efekt ARCH możemy
+uznać za nieistotny.
+
+Zostajemy zatem przy modelu MA(1), zbadajmy własności pozostalego
+składnika losowego.
+
+#### Test serii Stevens'a
+
+$$
+H_0:\text{elementy szeregu reszt ewaluują dookoła poziomu zerowego w sposób losowy} \\ H_1: \text{elementy szeregu reszt mają wewnętrzną dynamikę}
+$$
+
+```{r}
+runs.test(as.factor(arma_islandia$residuals>0))
+```
+
+Na poziomie istotności 0,05 nie odrzucamy $H_0$ zatem stwierdzamy iż
+pozostały składnik losowy jest losowy.
+
+#### Weryfikacja normalności
+
+**Test Andersona-Darlinga**
+
+$$
+H_0:\text{Składnik losowy ma rozkład normalny} \\ H_1: \text{Składnik losowy ma rozkład inny niż normalny}
+$$
+
+```{r}
+ad.test(arma_islandia$residuals)
+```
+
+Na poziomie istotności 0,05 odrzucamy $H_0$.
+
+```{r}
+qqnorm(arma_islandia$residuals, main = "Wykres kwantylowy składnika losowego dla Islandii")
+```
+
+\
+
+```{r}
+hist(arma_islandia$residuals, main = "Histogram składnika losowego dla Islandii")
+```
+
+W teście Andersona-Darlina byliśmy zmuszeni do odrzucenia $H_0$ co
+sugerowałoby iż składnik losowy nie ma rozkładu normalnego, jednakże na
+podstawie wykresu kwantylowego jak i histogramu stwierdzamy że jest
+wystarczająco zbliżony do normalnego i decydujemy się go traktować jak
+normalny.
+
+Stwierdziliśmy że efekt ARCH nie jest istotny, zatem wariancja nie jest
+zmienna w czasie, więc zakładamy homoskedastyczność składnika losowego.
+
+Finalnie składnik losowy: ma średnią 0, jest losowy, normalny oraz
+homoskedastyczny więc jest on białym szumem o wariancji równej 1,845897.
+
+```{r}
+var(arma_islandia$residuals)
+```
+
+### Finalna postać modelu:
+
+\$\$ \text{Temperatura}\_t = 1.564945495 -0.005323184t +
+s\left(\left[\frac{t}{12}\right]\right) + \epsilon\*t
++0.183\*\epsilon{t-1}  ; \quad \text{gdzie:} \\
+
+s(x) =
+
+\begin{cases} 4.238401014&; \ x = 0 \\ 0.0310583502 &; \ x = 1 \\ -2.373181521 &; \ x = 2  \\ -4.139276581 &; \ x = 3 \\ -3.232456003 &; \ x = 4 \\ -3.141528041 &; \ x = 5 \\ -3.415480542 &; \ x = 6 \\ -1.721775601&; \ x = 7 \\  1.759319502 &; \ x = 8 \\ 5.322835988 &; \ x = 9 \\ 7.433457715 &; \ x = 10 \\ 6.939835064 &; \ x = 11  \end{cases}
+
+\quad; \quad \epsilon\_t \sim N(0;1.845987) \$\$
+
+```{r}
+plot(fitted(islandia_hw)[1:468] + fitted(arma_islandia), type = "l", main = "Dopasowanie pełnego modelu dla Islandii") 
+lines(islandia$AverageTemperature[13:480], col = 'red')
+```
+
+# Literatura:
+
+1.  E. Kozłowski, "Analiza i identyfikacja szeregów czasowych",
+    Politechnika Lubelska, Lublin 2015.
+2.  M Gruszczyński, M.Podgórska, Ekonometria, Szkoła Główna Handlowa,
+    Warszawa 2000
+3.  G.C.Chow, Ekonometria, Wydawnictwo Naukowe PWN, Warszawa 1995.
