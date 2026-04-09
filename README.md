@@ -1,0 +1,1 @@
+# por-wnanie-rednich-temperatur-w-Islandii-i-indonezji
