@@ -1,4 +1,4 @@
-# porownanie srednich temperatur w Islandii i Indonezji
+# porownanie srednich temperatur w Islandii i Indonezji - projekt grupowy
 Projekt poświęcony analizie porównawczej zmian temperatury w dwóch skrajnie różnych strefach klimatycznych. Głównym celem pracy było zbadanie dynamiki zmian pogodowych oraz dopasowanie odpowiednich modeli statystycznych.
 
 # zakres analizy:
