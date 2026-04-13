@@ -10,6 +10,6 @@ Kompleksowa analiza szeregów czasowych:
 * Analiza trendu: Identyfikacja długookresowych tendencji wzrostowych lub spadkowych w obu lokalizacjach.
 * Modelowanie: Dopasowanie modeli (np. ARIMA, ARMA, Holta-Wintersa, modele ARCH) w celu opisania struktury danych.
 
-# wykorzystane narzędzia:
+# Wykorzystane narzędzia:
 * Język: R 
 * Środowisko:RStudio / R Markdown
